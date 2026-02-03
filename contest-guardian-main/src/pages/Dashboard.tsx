@@ -38,7 +38,14 @@ const Dashboard = () => {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedPlatform, setSelectedPlatform] = useState("all");
-  const { alarmState, dismissAlarm, snoozeAlarm, triggerAlarm } = useAlarm();
+  const {
+    alarmState,
+    dismissAlarm,
+    snoozeAlarm,
+    triggerAlarm,
+    scheduleAlarm,
+    cancelAlarm,
+  } = useAlarm();
   const { contests, loading, error, refetch, toggleSubscription } = useContests();
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
@@ -62,6 +69,63 @@ const Dashboard = () => {
     acc[contest.platform] = (acc[contest.platform] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
+
+  const getSelectedOffsets = () => {
+    const defaults = {
+      before60: true,
+      before30: true,
+      before10: false,
+      onLive: true,
+    };
+
+    try {
+      const raw = localStorage.getItem("alarm-offsets");
+      const parsed = raw ? JSON.parse(raw) : {};
+      const settings = { ...defaults, ...parsed };
+
+      return [
+        settings.before60 ? 60 : null,
+        settings.before30 ? 30 : null,
+        settings.before10 ? 10 : null,
+        settings.onLive ? 0 : null,
+      ].filter((value): value is number => value !== null);
+    } catch {
+      return [60, 30, 0];
+    }
+  };
+
+  const handleToggleSubscription = async (contestId: string) => {
+    const contest = contests.find((item) => item.id === contestId);
+    if (!contest) {
+      toggleSubscription(contestId);
+      return;
+    }
+
+    const nextSubscribed = !contest.isSubscribed;
+    toggleSubscription(contestId);
+
+    const offsets = getSelectedOffsets();
+    if (nextSubscribed) {
+      await Promise.all(
+        offsets.map((offset) =>
+          scheduleAlarm(
+            contest.id,
+            contest.name,
+            contest.platform,
+            new Date(contest.startTime),
+            offset
+          )
+        )
+      );
+      return;
+    }
+
+    await Promise.all(
+      offsets.map((offset) =>
+        cancelAlarm(`${contest.id}-${offset}`)
+      )
+    );
+  };
 
   // Get time until for alarm display
   const getTimeUntilDisplay = () => {
@@ -211,7 +275,9 @@ const Dashboard = () => {
                 </div>
                 <Button
                   variant="hero"
-                  onClick={() => triggerAlarm("Codeforces Round #924", "Codeforces", "10 min")}
+                  onClick={() =>
+                    triggerAlarm("Codeforces Round #924", "Codeforces")
+                  }
                   className="gap-2 shrink-0"
                 >
                   <Bell className="h-4 w-4" />
@@ -225,7 +291,7 @@ const Dashboard = () => {
                 <div className="lg:col-span-2">
                   <UpcomingContestsList
                     contests={contests}
-                    onSubscribe={toggleSubscription}
+                    onSubscribe={handleToggleSubscription}
                     onViewAll={() => setActiveTab("contests")}
                     loading={loading}
                   />
@@ -302,7 +368,7 @@ const Dashboard = () => {
                     <ContestCard 
                       key={contest.id} 
                       {...contest}
-                      onToggleSubscription={toggleSubscription}
+                      onToggleSubscription={handleToggleSubscription}
                     />
                   ))}
                 </div>

@@ -59,7 +59,7 @@ export const useContests = () => {
 
       const raw = json?.data?.contests || [];
 
-      const formatted: Contest[] = raw.map((c: any) => {
+      const formatted = raw.map((c: any) => {
         const platform = String(c.platform || "other").toLowerCase();
         const timeData = computeTimes(c);
 
@@ -78,7 +78,15 @@ export const useContests = () => {
         };
       });
 
-      setContests(formatted);
+      const unique = new Map<string, Contest>();
+      formatted.forEach((contest) => {
+        const key = contest.id || `${contest.name}-${contest.startTime}`;
+        if (!unique.has(key)) {
+          unique.set(key, contest);
+        }
+      });
+
+      setContests(Array.from(unique.values()));
     } catch (err) {
       console.error("Fetch contests error:", err);
       setError("Failed to load contests");

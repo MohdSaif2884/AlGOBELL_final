@@ -53,17 +53,6 @@ export default function ContestCard({
     status === "FINISHED" ||
     (end && now > end);
 
-  function formatTimeDiff(ms: number) {
-    const totalMin = Math.floor(ms / 60000);
-    const days = Math.floor(totalMin / 1440);
-    const hours = Math.floor((totalMin % 1440) / 60);
-    const mins = totalMin % 60;
-
-    if (days > 0) return `${days}d ${hours}h ${mins}m`;
-    if (hours > 0) return `${hours}h ${mins}m`;
-    return `${mins}m`;
-  }
-
   let timeLabel = "Time unavailable";
 
   if (isFinished) {
@@ -71,8 +60,14 @@ export default function ContestCard({
   } else if (isLive) {
     timeLabel = "LIVE";
   } else {
-    const diff = start.getTime() - now.getTime();
-    timeLabel = `Starts in ${formatTimeDiff(diff)}`;
+    const formatted = start.toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    timeLabel = `Starts at ${formatted} IST`;
   }
 
   const style = getPlatformStyle(platform);
