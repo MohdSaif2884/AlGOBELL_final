@@ -15,15 +15,15 @@ interface Props {
 
 function getPlatformStyle(platform: string) {
   switch (platform) {
-    case "Codeforces":
+    case "codeforces":
       return { color: "from-blue-500 to-cyan-500", initial: "CF" };
-    case "LeetCode":
+    case "leetcode":
       return { color: "from-orange-500 to-yellow-500", initial: "LC" };
-    case "CodeChef":
+    case "codechef":
       return { color: "from-yellow-600 to-orange-600", initial: "CC" };
-    case "AtCoder":
+    case "atcoder":
       return { color: "from-gray-500 to-gray-700", initial: "AC" };
-    case "Kaggle":
+    case "kaggle":
       return { color: "from-purple-500 to-pink-500", initial: "K" };
     default:
       return { color: "from-slate-500 to-slate-700", initial: "O" };

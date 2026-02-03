@@ -3,7 +3,7 @@
 export interface Contest {
   id: string;
   name: string;
-  platform: string;
+  platform: string; // always lowercase
   platformColor: string;
   platformInitial: string;
   startTime: string;
@@ -16,58 +16,30 @@ export interface Contest {
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 const platformColors: Record<string, string> = {
-  Codeforces: "from-blue-500 to-cyan-500",
-  LeetCode: "from-orange-500 to-yellow-500",
-  CodeChef: "from-yellow-600 to-orange-500",
-  Kaggle: "from-purple-500 to-indigo-500",
-  AtCoder: "from-gray-500 to-gray-700",
-  Other: "from-slate-500 to-slate-700",
+  codeforces: "from-blue-500 to-cyan-500",
+  leetcode: "from-orange-500 to-yellow-500",
+  codechef: "from-yellow-600 to-orange-500",
+  kaggle: "from-purple-500 to-indigo-500",
+  atcoder: "from-gray-500 to-gray-700",
+  hackerrank: "from-green-500 to-emerald-500",
+  hackerearth: "from-pink-500 to-rose-500",
+  topcoder: "from-red-500 to-orange-500",
+  other: "from-slate-500 to-slate-700",
 };
 
-const normalizePlatform = (p: string) => {
-  if (!p) return "Other";
-  const map: Record<string, string> = {
-    codeforces: "Codeforces",
-    leetcode: "LeetCode",
-    codechef: "CodeChef",
-    kaggle: "Kaggle",
-    atcoder: "AtCoder",
-    other: "Other",
-  };
-  return map[p.toLowerCase()] || "Other";
-};
-
-// ============================
-// TIME ENGINE (IST SAFE)
-// ============================
 function computeTimes(c: any) {
-  const startRaw = c.startTime || c.start_time;
-  const start = startRaw ? new Date(startRaw) : null;
-
-  const durationSec =
-    typeof c.duration === "number"
-      ? c.duration
-      : typeof c.durationSeconds === "number"
-      ? c.durationSeconds
-      : 0;
-
-  const end =
-    start && durationSec
-      ? new Date(start.getTime() + durationSec * 1000)
-      : null;
-
+  const start = new Date(c.startTime);
+  const end = new Date(c.endTime);
   const now = new Date();
 
   let status: "UPCOMING" | "LIVE" | "FINISHED" = "UPCOMING";
 
-  if (start && end) {
-    if (now >= start && now <= end) status = "LIVE";
-    else if (now > end) status = "FINISHED";
-  }
+  if (now >= start && now <= end) status = "LIVE";
+  else if (now > end) status = "FINISHED";
 
   return {
-    startTime: start?.toISOString() || "",
-    endTime: end?.toISOString() || null,
+    startTime: start.toISOString(),
+    endTime: end.toISOString(),
     status,
   };
 }
@@ -82,22 +54,22 @@ export const useContests = () => {
       setLoading(true);
       setError(null);
 
-      const res = await fetch(`${API_URL}/api/contests`);
+      const res = await fetch(`${API_URL}/api/contests?limit=100`);
       const json = await res.json();
 
       const raw = json?.data?.contests || [];
 
-      const formatted = raw.map((c: any) => {
-        const platform = normalizePlatform(c.platform);
+      const formatted: Contest[] = raw.map((c: any) => {
+        const platform = String(c.platform || "other").toLowerCase();
         const timeData = computeTimes(c);
 
         return {
-          id: c._id || c.id || crypto.randomUUID(),
+          id: c._id,
           name: c.name || "Unnamed Contest",
           platform,
           platformColor:
-            platformColors[platform] || platformColors.Other,
-          platformInitial: platform.charAt(0),
+            platformColors[platform] || platformColors.other,
+          platformInitial: platform.charAt(0).toUpperCase(),
           startTime: timeData.startTime,
           endTime: timeData.endTime,
           status: timeData.status,

@@ -1,47 +1,46 @@
- import { useEffect, useRef, useState } from "react";
+ import { useState, useEffect, useCallback, useRef } from "react";
+import { toast } from "sonner";
+import {
+  isNative,
+  scheduleContestNotification,
+  cancelContestNotification,
+} from "@/lib/capacitor";
 
-export interface AlarmContest {
+export interface ScheduledAlarm {
   id: string;
-  name: string;
-  platform: string;
-  startTime: string;
-}
-
-export interface AlarmEvent {
   contestId: string;
   contestName: string;
   platform: string;
-  offsetMinutes: number; // 0 = LIVE
-  fireTime: number; // timestamp (ms)
+  triggerTime: number;
+  offsetMinutes: number;
+  nativeNotificationId?: number;
 }
 
 interface AlarmState {
   isRinging: boolean;
-  currentAlarm: AlarmEvent | null;
+  currentAlarm: ScheduledAlarm | null;
 }
 
-const STORAGE_KEY = "scheduled-alarms";
+const STORAGE_KEY = "algobell-alarms";
 
-// ============================
-// LOCAL STORAGE HELPERS
-// ============================
-function loadAlarms(): AlarmEvent[] {
+// =======================
+// STORAGE
+// =======================
+const loadAlarms = (): ScheduledAlarm[] => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
-}
+};
 
-function saveAlarms(alarms: AlarmEvent[]) {
+const saveAlarms = (alarms: ScheduledAlarm[]) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(alarms));
-}
+};
 
-// ============================
-// HOOK
-// ============================
-export function useAlarm() {
+export const useAlarm = () => {
+  const [alarms, setAlarms] = useState<ScheduledAlarm[]>([]);
   const [alarmState, setAlarmState] = useState<AlarmState>({
     isRinging: false,
     currentAlarm: null,
@@ -49,131 +48,192 @@ export function useAlarm() {
 
   const timers = useRef<Record<string, number>>({});
 
-  // ============================
-  // RING ALARM
-  // ============================
-  const ringAlarm = (alarm: AlarmEvent) => {
+  // =======================
+  // RING
+  // =======================
+  const ringAlarm = (alarm: ScheduledAlarm) => {
     setAlarmState({
       isRinging: true,
       currentAlarm: alarm,
     });
-
-    try {
-      const audio = new Audio("/alarm.mp3");
-      audio.play().catch(() => {});
-    } catch {}
   };
 
-  // ============================
-  // SCHEDULE ONE ALARM
-  // ============================
-  const scheduleSingle = (alarm: AlarmEvent) => {
-    const delay = alarm.fireTime - Date.now();
-
+  // =======================
+  // TIMER
+  // =======================
+  const armTimer = (alarm: ScheduledAlarm) => {
+    const delay = alarm.triggerTime - Date.now();
     if (delay <= 0) return;
 
-    const id = window.setTimeout(() => {
+    const timerId = window.setTimeout(() => {
       ringAlarm(alarm);
     }, delay);
 
-    timers.current[`${alarm.contestId}-${alarm.offsetMinutes}`] = id;
+    timers.current[alarm.id] = timerId;
   };
 
-  // ============================
-  // PUBLIC: SCHEDULE ALARMS
-  // ============================
-  const scheduleAlarms = (
-    contest: AlarmContest,
-    offsets: number[],
-    includeLive: boolean
-  ) => {
-    const start = new Date(contest.startTime).getTime();
-    if (isNaN(start)) return;
+  // =======================
+  // SCHEDULE
+  // =======================
+  const scheduleAlarm = useCallback(
+    async (
+      contestId: string,
+      contestName: string,
+      platform: string,
+      contestStartTime: Date,
+      offsetMinutes: number
+    ) => {
+      const triggerTime =
+        contestStartTime.getTime() - offsetMinutes * 60000;
 
-    let alarms = loadAlarms();
+      if (triggerTime <= Date.now()) return null;
 
-    // Remove old alarms for same contest
-    alarms = alarms.filter(
-      (a) => a.contestId !== contest.id
-    );
+      const id = `${contestId}-${offsetMinutes}`;
 
-    const newAlarms: AlarmEvent[] = [];
+      let nativeNotificationId: number | undefined;
 
-    offsets.forEach((min) => {
-      const fireTime = start - min * 60 * 1000;
-
-      if (fireTime > Date.now()) {
-        newAlarms.push({
-          contestId: contest.id,
-          contestName: contest.name,
-          platform: contest.platform,
-          offsetMinutes: min,
-          fireTime,
-        });
+      if (isNative()) {
+        const notifId = await scheduleContestNotification(
+          contestId,
+          contestName,
+          platform,
+          new Date(triggerTime),
+          offsetMinutes
+        );
+        nativeNotificationId = notifId ?? undefined;
       }
-    });
 
-    // LIVE alarm
-    if (includeLive && start > Date.now()) {
-      newAlarms.push({
-        contestId: contest.id,
-        contestName: contest.name,
-        platform: contest.platform,
-        offsetMinutes: 0,
-        fireTime: start,
+      const alarm: ScheduledAlarm = {
+        id,
+        contestId,
+        contestName,
+        platform,
+        triggerTime,
+        offsetMinutes,
+        nativeNotificationId,
+      };
+
+      setAlarms((prev) => {
+        const updated = prev.filter((a) => a.id !== id);
+        const result = [...updated, alarm];
+        saveAlarms(result);
+        return result;
       });
-    }
 
-    const updated = [...alarms, ...newAlarms];
+      armTimer(alarm);
 
-    saveAlarms(updated);
+      toast.success(
+        `Alarm set for ${offsetMinutes} min before ${contestName}`
+      );
 
-    // Schedule timers
-    newAlarms.forEach(scheduleSingle);
-  };
+      return id;
+    },
+    []
+  );
 
-  // ============================
+  // =======================
+  // CANCEL
+  // =======================
+  const cancelAlarm = useCallback(
+    async (alarmId: string) => {
+      const alarm = alarms.find((a) => a.id === alarmId);
+
+      if (alarm?.nativeNotificationId && isNative()) {
+        await cancelContestNotification(
+          alarm.nativeNotificationId
+        );
+      }
+
+      if (timers.current[alarmId]) {
+        clearTimeout(timers.current[alarmId]);
+        delete timers.current[alarmId];
+      }
+
+      setAlarms((prev) => {
+        const updated = prev.filter((a) => a.id !== alarmId);
+        saveAlarms(updated);
+        return updated;
+      });
+    },
+    [alarms]
+  );
+
+  // =======================
   // DISMISS
-  // ============================
-  const dismissAlarm = () => {
+  // =======================
+  const dismissAlarm = useCallback(() => {
     setAlarmState({
       isRinging: false,
       currentAlarm: null,
     });
-  };
-
-  // ============================
-  // SNOOZE
-  // ============================
-  const snoozeAlarm = (minutes = 5) => {
-    if (!alarmState.currentAlarm) return;
-
-    const snoozed: AlarmEvent = {
-      ...alarmState.currentAlarm,
-      offsetMinutes: -minutes,
-      fireTime: Date.now() + minutes * 60 * 1000,
-    };
-
-    scheduleSingle(snoozed);
-
-    dismissAlarm();
-  };
-
-  // ============================
-  // LOAD ALARMS ON START
-  // ============================
-  useEffect(() => {
-    const alarms = loadAlarms();
-    alarms.forEach(scheduleSingle);
   }, []);
 
-  // ============================
-  // PUBLIC API
-  // ============================
+  // =======================
+  // SNOOZE
+  // =======================
+  const snoozeAlarm = useCallback(
+    (minutes = 5) => {
+      const current = alarmState.currentAlarm;
+      if (!current) return;
+
+      const triggerTime = Date.now() + minutes * 60000;
+
+      const snoozed: ScheduledAlarm = {
+        ...current,
+        id: `${current.id}-snooze`,
+        triggerTime,
+        offsetMinutes: -minutes,
+      };
+
+      setAlarms((prev) => {
+        const updated = [...prev, snoozed];
+        saveAlarms(updated);
+        return updated;
+      });
+
+      armTimer(snoozed);
+
+      toast.info(`Snoozed for ${minutes} minutes`);
+      dismissAlarm();
+    },
+    [alarmState.currentAlarm, dismissAlarm]
+  );
+
+  // =======================
+  // TEST ALARM
+  // =======================
+  const triggerAlarm = useCallback(
+    (contestName: string, platform: string) => {
+      const testAlarm: ScheduledAlarm = {
+        id: "test-alarm",
+        contestId: "test",
+        contestName,
+        platform,
+        triggerTime: Date.now(),
+        offsetMinutes: 0,
+      };
+
+      ringAlarm(testAlarm);
+    },
+    []
+  );
+
+  // =======================
+  // LOAD ON START
+  // =======================
+  useEffect(() => {
+    const stored = loadAlarms();
+    setAlarms(stored);
+    stored.forEach(armTimer);
+  }, []);
+
   return {
+    alarms,
     alarmState,
-    scheduleAlarms,
+    scheduleAlarm,
+    cancelAlarm,
     dismissAlarm,
     snoozeAlarm,
+    triggerAlarm,
   };
-}
+};

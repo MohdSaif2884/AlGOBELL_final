@@ -6,28 +6,40 @@
 
 const platforms = [
   "all",
-  "Codeforces",
-  "LeetCode",
-  "CodeChef",
-  "AtCoder",
-  "Kaggle",
+  "codeforces",
+  "leetcode",
+  "codechef",
+  "atcoder",
+  "kaggle",
+  "hackerrank",
+  "hackerearth",
+  "topcoder",
 ];
+
+const label = (p: string) => {
+  if (p === "all") return "All";
+  return p.charAt(0).toUpperCase() + p.slice(1);
+};
 
 export default function PlatformFilter({
   selected,
   onSelect,
   contestCounts,
 }: Props) {
+  const getCount = (p: string) => {
+    if (p === "all") {
+      return Object.values(contestCounts).reduce(
+        (a, b) => a + b,
+        0
+      );
+    }
+    return contestCounts[p] || 0;
+  };
+
   return (
     <div className="flex gap-2 flex-wrap mb-6">
       {platforms.map((p) => {
-        const count =
-          p === "all"
-            ? Object.values(contestCounts).reduce(
-                (a: number, b: number) => a + b,
-                0
-              )
-            : contestCounts[p] || 0;
+        const count = getCount(p);
 
         return (
           <button
@@ -39,7 +51,7 @@ export default function PlatformFilter({
                 : "bg-secondary text-muted-foreground hover:text-white"
             }`}
           >
-            {p === "all" ? "All" : p} {count}
+            {label(p)} {count}
           </button>
         );
       })}
