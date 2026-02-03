@@ -14,20 +14,39 @@ const contestSchema = new mongoose.Schema(
       required: true
     },
 
+    // platform: {
+    //   type: String,
+    //   required: true,
+    //   enum: [
+    //     "codeforces",
+    //     "leetcode",
+    //     "codechef",
+    //     "atcoder",
+    //     "hackerrank",
+    //     "hackerearth",
+    //     "topcoder"
+    //   ],
+    //   index: true
+    // },
+
     platform: {
-      type: String,
-      required: true,
-      enum: [
-        "codeforces",
-        "leetcode",
-        "codechef",
-        "atcoder",
-        "hackerrank",
-        "hackerearth",
-        "topcoder"
-      ],
-      index: true
-    },
+  type: String,
+  required: true,
+   enum: [
+  "codeforces",
+  "leetcode",
+  "codechef",
+  "atcoder",
+  "kaggle",
+  "hackerrank",
+  "hackerearth",
+  "topcoder",
+  "other"
+],
+
+  index: true
+},
+
 
     startTime: {
       type: Date,

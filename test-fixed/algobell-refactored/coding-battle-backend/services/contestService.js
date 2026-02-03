@@ -5,29 +5,30 @@ class ContestService {
   constructor() {
     this.apis = [
       {
+        // 🔥 PRIMARY SOURCE — CLIST
+        name: "Clist",
+        url: "https://clist.by/api/v4/contest/",
+        timeout: 30000,
+        parser: this.parseClistResponse.bind(this),
+        headers: {
+          Authorization: `ApiKey ${process.env.CLIST_USERNAME}:${process.env.CLIST_API_KEY}`,
+        },
+        params: {
+          start__gte: new Date().toISOString(),
+          order_by: "start",
+          limit: 100,
+        },
+        enabled: true,
+      },
+
+      {
+        // ⚠️ FALLBACK — Kontests
         name: "Kontests",
         url: "https://kontests.net/api/v1/all",
         timeout: 20000,
-        parser: this.parseKontestsResponse.bind(this)
+        parser: this.parseKontestsResponse.bind(this),
+        enabled: true,
       },
-      {
-        name: "Clist",
-        url: "https://clist.by/api/v4/contest/",
-        timeout: 25000,
-        parser: this.parseClistResponse.bind(this),
-        headers: {
-          Authorization: `ApiKey ${process.env.CLIST_USERNAME || ""}:${process.env.CLIST_API_KEY || ""}`
-        },
-        params: {
-          upcoming: true,
-          format: "json",
-          limit: 100
-        },
-        enabled: !!(
-          process.env.CLIST_USERNAME &&
-          process.env.CLIST_API_KEY
-        )
-      }
     ];
   }
 
@@ -44,9 +45,9 @@ class ContestService {
           headers: {
             "User-Agent": "Mozilla/5.0",
             Accept: "application/json",
-            ...config.headers
+            ...config.headers,
           },
-          params: config.params || {}
+          params: config.params || {},
         });
       } catch (err) {
         console.error(`❌ ${config.name} failed:`, err.message);
@@ -66,7 +67,7 @@ class ContestService {
       start_time: c.start_time,
       end_time: c.end_time,
       duration: Number(c.duration || 0),
-      url: c.url
+      url: c.url,
     }));
   }
 
@@ -74,12 +75,13 @@ class ContestService {
     const contests = data.objects || data.results || [];
 
     return contests.map((c) => ({
+      clistId: c.id, // 🔥 TRUE UNIQUE ID
       name: c.event,
       site: c.resource?.name || "",
       start_time: c.start,
       end_time: c.end,
       duration: Number(c.duration || 0),
-      url: c.href
+      url: c.href,
     }));
   }
 
@@ -102,7 +104,7 @@ class ContestService {
   }
 
   // =========================
-  // SAFE DURATION FALLBACKS (MINUTES)
+  // SAFE DURATION FALLBACKS
   // =========================
   getFixedMinutes(platform) {
     const map = {
@@ -110,7 +112,7 @@ class ContestService {
       leetcode: 90,
       codechef: 180,
       atcoder: 120,
-      kaggle: 10080 // 7 days
+      kaggle: 10080, // 7 days
     };
 
     return map[platform] || 120;
@@ -124,7 +126,7 @@ class ContestService {
 
     for (const api of this.apis) {
       if (api.enabled === false) {
-        console.log(`⏭️  Skipping ${api.name}`);
+        console.log(`⏭️ Skipping ${api.name}`);
         continue;
       }
 
@@ -134,21 +136,27 @@ class ContestService {
         const contests = api.parser(res.data);
 
         let saved = 0;
+        let skipped = 0;
 
         for (const c of contests) {
           try {
-            if (!c.name || !c.site || !c.start_time) continue;
+            if (!c.name || !c.site || !c.start_time) {
+              skipped++;
+              continue;
+            }
 
             const platform = this.normalizePlatform(c.site);
             const startTime = new Date(c.start_time);
 
-            if (isNaN(startTime.getTime())) continue;
+            if (isNaN(startTime.getTime())) {
+              skipped++;
+              continue;
+            }
 
             // =========================
-            // SAFE END TIME LOGIC
+            // SAFE END TIME
             // =========================
             let endTime;
-
             if (c.end_time) {
               endTime = new Date(c.end_time);
             } else {
@@ -159,19 +167,20 @@ class ContestService {
             }
 
             const now = new Date();
-
             let status = "upcoming";
-            if (now > endTime) {
-              status = "ended";
-            } else if (now >= startTime && now <= endTime) {
+
+            if (now > endTime) status = "ended";
+            else if (now >= startTime && now <= endTime)
               status = "live";
-            }
 
-            const externalId = `${platform}_${c.name}_${startTime.toISOString()}`
-              .toLowerCase()
-              .replace(/[^a-z0-9]/g, "_");
+            // =========================
+            // 🔥 TRUE UNIQUE ID SYSTEM
+            // =========================
+            const externalId = c.clistId
+              ? `clist_${c.clistId}`
+              : `${platform}_${startTime.getTime()}`;
 
-            await Contest.findOneAndUpdate(
+            const result = await Contest.findOneAndUpdate(
               { externalId },
               {
                 externalId,
@@ -185,19 +194,29 @@ class ContestService {
                 ),
                 url: c.url || "",
                 status,
-                lastFetched: new Date()
+                lastFetched: new Date(),
               },
-              { upsert: true, new: true }
+              { upsert: true, new: false }
             );
 
-            saved++;
+            if (!result) saved++;
+            else skipped++;
           } catch (err) {
-            console.log("⚠️  Skipped contest:", c.name);
+            console.log("⚠️ Skipped contest:", c.name);
+            skipped++;
           }
         }
 
-        console.log(`✅ ${api.name}: Saved ${saved}/${contests.length}`);
-        return { source: api.name, saved, total: contests.length };
+        console.log(
+          `✅ ${api.name}: Saved ${saved}, Skipped ${skipped}, Total ${contests.length}`
+        );
+
+        return {
+          source: api.name,
+          saved,
+          skipped,
+          total: contests.length,
+        };
       } catch (err) {
         lastError = err;
         console.error(`❌ ${api.name} failed:`, err.message);
@@ -212,7 +231,7 @@ class ContestService {
   // =========================
   async getUpcomingContests({ platform, limit = 50 }) {
     const query = {
-      status: { $in: ["upcoming", "live"] }
+      status: { $in: ["upcoming", "live"] },
     };
 
     if (platform && platform !== "all") {
@@ -230,7 +249,7 @@ class ContestService {
       isUpcoming: c.status === "upcoming",
       timeUntilStart: Math.floor(
         (new Date(c.startTime) - new Date()) / 60000
-      )
+      ),
     }));
   }
 
@@ -243,7 +262,7 @@ class ContestService {
   async getContestById(contestId) {
     try {
       return await Contest.findById(contestId).lean();
-    } catch (err) {
+    } catch {
       return null;
     }
   }
@@ -254,21 +273,31 @@ class ContestService {
   async updateContestStatuses() {
     const now = new Date();
 
-    await Contest.updateMany(
-      { status: { $in: ["upcoming", "live"] }, endTime: { $lt: now } },
+    const ended = await Contest.updateMany(
+      {
+        status: { $in: ["upcoming", "live"] },
+        endTime: { $lt: now },
+      },
       { status: "ended" }
     );
 
-    await Contest.updateMany(
+    const live = await Contest.updateMany(
       {
         status: "upcoming",
         startTime: { $lte: now },
-        endTime: { $gt: now }
+        endTime: { $gt: now },
       },
       { status: "live" }
     );
 
-    console.log("🔁 Contest statuses updated");
+    console.log(
+      `🔁 Status updated → Ended: ${ended.modifiedCount}, Live: ${live.modifiedCount}`
+    );
+
+    return {
+      ended: ended.modifiedCount,
+      live: live.modifiedCount,
+    };
   }
 
   // =========================
@@ -280,7 +309,7 @@ class ContestService {
 
     const result = await Contest.deleteMany({
       status: "ended",
-      endTime: { $lt: cutoff }
+      endTime: { $lt: cutoff },
     });
 
     if (result.deletedCount > 0) {
@@ -297,18 +326,18 @@ class ContestService {
     return Contest.aggregate([
       {
         $match: {
-          status: { $in: ["upcoming", "live"] }
-        }
+          status: { $in: ["upcoming", "live"] },
+        },
       },
       {
         $group: {
           _id: "$platform",
-          count: { $sum: 1 }
-        }
+          count: { $sum: 1 },
+        },
       },
       {
-        $sort: { count: -1 }
-      }
+        $sort: { count: -1 },
+      },
     ]);
   }
 }
