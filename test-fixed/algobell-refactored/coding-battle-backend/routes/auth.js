@@ -223,4 +223,41 @@ router.get('/stats', protect, async (req, res) => {
   }
 });
 
+// @route   POST /api/user/upgrade
+// @desc    Upgrade user to Pro plan
+// @access  Private
+router.post('/upgrade', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Update user to Pro plan
+    user.subscription.plan = 'pro';
+    user.subscription.expiresAt = new Date(Date.now() + (365 * 24 * 60 * 60 * 1000)); // 1 year from now
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Successfully upgraded to Pro plan',
+      data: {
+        plan: user.subscription.plan,
+        expiresAt: user.subscription.expiresAt
+      }
+    });
+  } catch (error) {
+    console.error('Upgrade error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during upgrade'
+    });
+  }
+});
+
 module.exports = router;

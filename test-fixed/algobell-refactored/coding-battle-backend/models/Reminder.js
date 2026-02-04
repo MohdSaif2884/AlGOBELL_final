@@ -45,17 +45,24 @@ const reminderSchema = new mongoose.Schema({
   
   // Delivery tracking
   sentAt: Date,
-  
+
   failureReason: String,
-  
+
   attempts: {
     type: Number,
     default: 0
   },
-  
+
   maxAttempts: {
     type: Number,
     default: 3
+  },
+
+  // Reminder type (for smart platform alarms)
+  type: {
+    type: String,
+    enum: ['manual', 'smart'],
+    default: 'manual'
   }
 }, {
   timestamps: true

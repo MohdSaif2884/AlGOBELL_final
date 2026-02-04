@@ -91,6 +91,13 @@ const userSchema = new mongoose.Schema({
       prioritySupport: { type: Boolean, default: false }
     }
   },
+
+  // Smart Platform Alarm (PRO feature)
+  smartAlarm: {
+    enabled: { type: Boolean, default: false },
+    platform: { type: String, default: null },
+    offsetMinutes: { type: Number, default: 30 }
+  },
   
   createdAt: {
     type: Date,

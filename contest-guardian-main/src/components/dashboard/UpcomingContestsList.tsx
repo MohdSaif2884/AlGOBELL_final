@@ -10,25 +10,17 @@ interface UpcomingContestItemProps {
 }
 
 const UpcomingContestItem = ({ contest, onSubscribe }: UpcomingContestItemProps) => {
-  const getTimeUntilStart = () => {
-    const now = new Date();
-    const start = new Date(contest.startTime);
+  const formatStartTimeIST = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "Invalid time";
 
-    const diff = start.getTime() - now.getTime();
-    if (isNaN(diff)) return "Invalid time";
-    if (diff < 0) return "Live";
-
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const minutes = Math.floor(
-      (diff % (1000 * 60 * 60)) / (1000 * 60)
-    );
-
-    if (hours > 24) {
-      const days = Math.floor(hours / 24);
-      return `${days}d ${hours % 24}h`;
-    }
-
-    return `${hours}h ${minutes}m`;
+    return date.toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   return (
@@ -49,7 +41,7 @@ const UpcomingContestItem = ({ contest, onSubscribe }: UpcomingContestItemProps)
           <div className="flex items-center gap-2 mt-0.5">
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Clock className="h-3 w-3" />
-              Starts in {getTimeUntilStart()}
+              Starts at {formatStartTimeIST(contest.startTime)} IST
             </span>
             <Badge
               variant="secondary"

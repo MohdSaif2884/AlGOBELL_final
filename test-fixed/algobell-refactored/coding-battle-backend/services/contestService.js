@@ -1,5 +1,7 @@
- const axios = require("axios");
+const axios = require("axios");
 const Contest = require("../models/Contest");
+const User = require("../models/User");
+const Reminder = require("../models/Reminder");
 
 class ContestService {
   constructor() {
@@ -199,8 +201,24 @@ class ContestService {
               { upsert: true, new: false }
             );
 
-            if (!result) saved++;
-            else skipped++;
+            if (!result) {
+              saved++;
+              // =========================
+              // SMART ALARM ENGINE
+              // =========================
+              try {
+                await this.createSmartAlarmsForContest({
+                  contestId: result._id || (await Contest.findOne({ externalId }))._id,
+                  platform,
+                  contestName: c.name,
+                  startTime
+                });
+              } catch (smartAlarmError) {
+                console.error('❌ Smart alarm creation failed:', smartAlarmError.message);
+              }
+            } else {
+              skipped++;
+            }
           } catch (err) {
             console.log("⚠️ Skipped contest:", c.name);
             skipped++;
@@ -227,12 +245,21 @@ class ContestService {
   }
 
   // =========================
+  // STATUS CALCULATION (UTC-SAFE)
+  // =========================
+  calculateContestStatus(startTime, endTime) {
+    const now = new Date(); // UTC by default
+
+    if (now < startTime) return "upcoming";
+    if (startTime <= now && now <= endTime) return "live";
+    return "ended";
+  }
+
+  // =========================
   // QUERIES
   // =========================
-  async getUpcomingContests({ platform, limit = 50 }) {
-    const query = {
-      status: { $in: ["upcoming", "live"] },
-    };
+  async getAllContests({ platform, limit = 100 }) {
+    const query = {};
 
     if (platform && platform !== "all") {
       query.platform = platform;
@@ -243,14 +270,26 @@ class ContestService {
       .limit(Number(limit))
       .lean();
 
-    return contests.map((c) => ({
-      ...c,
-      isLive: c.status === "live",
-      isUpcoming: c.status === "upcoming",
-      timeUntilStart: Math.floor(
-        (new Date(c.startTime) - new Date()) / 60000
-      ),
-    }));
+    // Dynamically calculate status for each contest
+    return contests.map((c) => {
+      const status = this.calculateContestStatus(c.startTime, c.endTime);
+      return {
+        ...c,
+        status,
+        isLive: status === "live",
+        isUpcoming: status === "upcoming",
+        isEnded: status === "ended",
+        timeUntilStart: Math.floor(
+          (new Date(c.startTime) - new Date()) / 60000
+        ),
+      };
+    });
+  }
+
+  // Keep old method for backward compatibility
+  async getUpcomingContests({ platform, limit = 50 }) {
+    const allContests = await this.getAllContests({ platform, limit });
+    return allContests.filter(c => c.status !== "ended");
   }
 
   async getLiveContests() {
@@ -339,6 +378,67 @@ class ContestService {
         $sort: { count: -1 },
       },
     ]);
+  }
+
+  // =========================
+  // SMART ALARM ENGINE
+  // =========================
+  async createSmartAlarmsForContest({ contestId, platform, contestName, startTime }) {
+    // Find all PRO users with smart alarm enabled for this platform
+    const users = await User.find({
+      'subscription.plan': 'pro',
+      'smartAlarm.enabled': true,
+      'smartAlarm.platform': platform
+    });
+
+    if (users.length === 0) {
+      console.log(`⏭️ No smart alarms for ${platform} contests`);
+      return;
+    }
+
+    let created = 0;
+    let skipped = 0;
+
+    for (const user of users) {
+      try {
+        const offsetMinutes = user.smartAlarm.offsetMinutes || 30;
+        const triggerTime = new Date(startTime.getTime() - offsetMinutes * 60000);
+
+        // Check if reminder already exists (prevent duplicates)
+        const existingReminder = await Reminder.findOne({
+          userId: user._id,
+          contestId,
+          type: 'smart'
+        });
+
+        if (existingReminder) {
+          console.log(`⏭️ Skipped existing smart alarm for ${user.email} → ${contestName}`);
+          skipped++;
+          continue;
+        }
+
+        // Create smart alarm reminder
+        await Reminder.create({
+          userId: user._id,
+          contestId,
+          offsetMinutes,
+          scheduledAt: triggerTime,
+          channels: {
+            email: user.contestPreferences?.enabledChannels?.email || false,
+            whatsapp: user.contestPreferences?.enabledChannels?.whatsapp || false,
+            push: user.contestPreferences?.enabledChannels?.push || true
+          },
+          type: 'smart'
+        });
+
+        console.log(`🔔 Smart alarm set for ${user.email} → ${contestName} (${offsetMinutes}min before)`);
+        created++;
+      } catch (error) {
+        console.error(`❌ Failed to create smart alarm for ${user.email}:`, error.message);
+      }
+    }
+
+    console.log(`✅ Smart alarms: Created ${created}, Skipped ${skipped} for ${platform} contest`);
   }
 }
 

@@ -102,7 +102,7 @@ router.get("/", async (req, res) => {
 
     const { platform, limit } = req.query;
 
-    const contests = await contestService.getUpcomingContests({
+    const contests = await contestService.getAllContests({
       platform,
       limit: parseInt(limit) || 100
     });
