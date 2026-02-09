@@ -24,14 +24,10 @@ function computeTimes(c: any) {
     c.startTime || c.start_time || c.start
   );
 
-  // duration usually in SECONDS
+  // duration in DB is in MINUTES, convert to seconds
   const durationSec =
     typeof c.duration === "number"
-      ? c.duration
-      : typeof c.durationSeconds === "number"
-      ? c.durationSeconds
-      : typeof c.length === "number"
-      ? c.length
+      ? c.duration * 60
       : 0;
 
   const end =

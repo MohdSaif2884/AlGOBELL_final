@@ -1,7 +1,8 @@
 import { motion } from "framer-motion";
 import { Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useToast } from "@/hooks/use-toast";
 
 const plans = [
   {
@@ -40,6 +41,53 @@ const plans = [
 ];
 
 const Pricing = () => {
+  const { toast } = useToast();
+  const navigate = useNavigate();
+
+  const handleUpgrade = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast({
+          title: "Authentication Required",
+          description: "Please log in to upgrade to Pro.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const response = await fetch('/api/user/upgrade', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        toast({
+          title: "Pro Activated Successfully",
+          description: "Welcome to Pro! Enjoy all premium features.",
+        });
+        navigate('/dashboard');
+      } else {
+        toast({
+          title: "Upgrade Failed",
+          description: data.message || "Something went wrong. Please try again.",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Network Error",
+        description: "Please check your connection and try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <section id="pricing" className="relative py-24 bg-secondary/30">
       <div className="container mx-auto px-4">
@@ -105,15 +153,26 @@ const Pricing = () => {
                 </ul>
 
                 {/* CTA */}
-                <Link to="/dashboard">
+                {plan.featured ? (
                   <Button
-                    variant={plan.featured ? "hero" : "glass"}
+                    variant="hero"
                     size="lg"
                     className="w-full"
+                    onClick={handleUpgrade}
                   >
                     {plan.cta}
                   </Button>
-                </Link>
+                ) : (
+                  <Link to="/dashboard">
+                    <Button
+                      variant="glass"
+                      size="lg"
+                      className="w-full"
+                    >
+                      {plan.cta}
+                    </Button>
+                  </Link>
+                )}
               </div>
             </motion.div>
           ))}

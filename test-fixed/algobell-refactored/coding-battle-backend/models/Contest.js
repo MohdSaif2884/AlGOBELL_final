@@ -2,6 +2,13 @@
 
 const contestSchema = new mongoose.Schema(
   {
+    clistId: {
+      type: Number,
+      unique: true,
+      sparse: true,
+      index: true
+    },
+
     externalId: {
       type: String,
       required: true,

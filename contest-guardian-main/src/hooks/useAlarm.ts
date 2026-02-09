@@ -84,7 +84,7 @@ export const useAlarm = () => {
       offsetMinutes: number
     ) => {
       const triggerTime =
-        contestStartTime.getTime() - offsetMinutes * 60000;
+        new Date(new Date(contestStartTime).toLocaleString("en-US", { timeZone: "Asia/Kolkata" })).getTime() - offsetMinutes * 60000;
 
       if (triggerTime <= Date.now()) return null;
 

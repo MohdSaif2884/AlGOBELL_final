@@ -22,9 +22,14 @@ async function main() {
     const result = await contestService.fetchAndStoreContests();
     
     console.log('\n📊 Results:');
+    console.log(`   - Sources: ${result.sources?.join(', ') || 'None'}`);
     console.log(`   - Total fetched: ${result.total}`);
-    console.log(`   - Saved: ${result.savedCount}`);
-    console.log(`   - Updated: ${result.updatedCount}`);
+    console.log(`   - Matched: ${result.matched}`);
+    console.log(`   - Modified: ${result.modified}`);
+    console.log(`   - Inserted: ${result.upserted}`);
+    console.log(`   - DB before: ${result.dbBefore}`);
+    console.log(`   - DB after: ${result.dbAfter}`);
+    console.log(`   - Net change: ${result.dbAfter - result.dbBefore}`);
     
     // Update statuses
     console.log('\n⏳ Updating contest statuses...');

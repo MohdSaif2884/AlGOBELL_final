@@ -1,5 +1,6 @@
- import { Bell, ExternalLink } from "lucide-react";
+import { Bell, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatToIST } from "@/lib/timeUtils";
 
 interface Props {
   id: string;
@@ -35,39 +36,41 @@ export default function ContestCard({
   name,
   platform,
   startTime,
-  endTime,
   status,
   link,
   isSubscribed,
   onToggleSubscription,
 }: Props) {
-  const now = new Date();
-  const start = new Date(startTime);
-  const end = endTime ? new Date(endTime) : null;
+  let statusBadge = null;
+  let timeLabel = "";
 
-  const isLive =
-    status === "LIVE" ||
-    (start && end && now >= start && now <= end);
-
-  const isFinished =
-    status === "FINISHED" ||
-    (end && now > end);
-
-  let timeLabel = "Time unavailable";
-
-  if (isFinished) {
+  if (status === "LIVE") {
+    timeLabel = "LIVE NOW";
+    statusBadge = (
+      <span className="px-2 py-1 text-xs bg-green-500/20 text-green-400 rounded-full flex items-center gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+        LIVE
+      </span>
+    );
+  } else if (status === "FINISHED") {
     timeLabel = "Finished";
-  } else if (isLive) {
-    timeLabel = "LIVE";
+    statusBadge = (
+      <span className="px-2 py-1 text-xs bg-red-500/20 text-red-400 rounded-full">
+        FINISHED
+      </span>
+    );
   } else {
-    const formatted = start.toLocaleString("en-IN", {
-      timeZone: "Asia/Kolkata",
-      day: "2-digit",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    timeLabel = `Starts at ${formatted} IST`;
+    console.log("Raw from API:", startTime);
+    console.log("Parsed Date:", new Date(startTime));
+    console.log("IST:", new Date(startTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
+
+    timeLabel = formatToIST(startTime);
+
+    statusBadge = (
+      <span className="px-2 py-1 text-xs bg-blue-500/20 text-blue-400 rounded-full">
+        UPCOMING
+      </span>
+    );
   }
 
   const style = getPlatformStyle(platform);
@@ -101,16 +104,12 @@ export default function ContestCard({
       </div>
 
       <div className="mt-3 flex items-center justify-between">
-        {isLive ? (
-          <span className="flex items-center gap-2 text-green-400 font-medium">
-            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            LIVE
-          </span>
-        ) : (
+        <div className="flex items-center gap-2">
+          {statusBadge}
           <span className="text-sm text-muted-foreground">
             {timeLabel}
           </span>
-        )}
+        </div>
 
         <a
           href={link}
@@ -122,7 +121,7 @@ export default function ContestCard({
         </a>
       </div>
 
-      {isSubscribed && !isFinished && (
+      {isSubscribed && (
         <div className="mt-2 text-xs text-green-400">
           ● Reminders set
         </div>

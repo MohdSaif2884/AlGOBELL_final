@@ -12,6 +12,7 @@ import {
   RefreshCw,
   AlertCircle,
   Loader2,
+  Home,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link, useNavigate } from "react-router-dom";
@@ -147,17 +148,40 @@ const Dashboard = () => {
         onSnooze={() => snoozeAlarm(5)}
       />
 
-      {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 h-16 border-b border-white/5 bg-background/80 backdrop-blur-xl flex items-center justify-between px-4">
-        <Link to="/" className="flex items-center gap-2">
-          <div className="feature-icon h-8 w-8">
-            <Bell className="h-4 w-4 text-white" />
-          </div>
-          <span className="text-lg font-bold gradient-text">AlgoBell</span>
-        </Link>
-        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2">
-          {sidebarOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-        </button>
+      {/* Header */}
+      <div className="fixed top-0 left-0 right-0 z-50 h-16 border-b border-white/5 bg-background/80 backdrop-blur-xl flex items-center justify-between px-4">
+        <div className="flex items-center gap-3">
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="gap-2 hover:bg-white/10 text-white hover:text-white"
+          >
+            <Link to="/">
+              <Home className="h-4 w-4" />
+              <span className="font-semibold">Home</span>
+            </Link>
+          </Button>
+          {activeTab === "contests" && (
+            <Button
+              onClick={() => setActiveTab("dashboard")}
+              variant="ghost"
+              size="sm"
+              className="gap-2 hover:bg-white/10 text-white hover:text-white"
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              <span className="font-semibold">Dashboard</span>
+            </Button>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="lg:hidden hover:bg-white/10 text-white hover:text-white"
+        >
+          {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </Button>
       </div>
 
       {/* Sidebar */}
@@ -232,7 +256,7 @@ const Dashboard = () => {
       )}
 
       {/* Main Content */}
-      <main className="lg:ml-[280px] pt-16 lg:pt-0 min-h-screen">
+      <main className="lg:ml-[280px] pt-16 min-h-screen">
         <div className="p-6 lg:p-8">
           {/* Page Header */}
           <motion.div

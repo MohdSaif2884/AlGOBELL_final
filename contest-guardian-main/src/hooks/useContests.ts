@@ -3,7 +3,7 @@
 export interface Contest {
   id: string;
   name: string;
-  platform: string; // always lowercase
+  platform: string;
   platformColor: string;
   platformInitial: string;
   startTime: string;
@@ -14,6 +14,7 @@ export interface Contest {
 }
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+const DEFAULT_LIMIT = 300;
 
 const platformColors: Record<string, string> = {
   codeforces: "from-blue-500 to-cyan-500",
@@ -27,21 +28,11 @@ const platformColors: Record<string, string> = {
   other: "from-slate-500 to-slate-700",
 };
 
-function computeTimes(c: any) {
-  const start = new Date(c.startTime);
-  const end = new Date(c.endTime);
-  const now = new Date();
-
-  let status: "UPCOMING" | "LIVE" | "FINISHED" = "UPCOMING";
-
-  if (now >= start && now <= end) status = "LIVE";
-  else if (now > end) status = "FINISHED";
-
-  return {
-    startTime: start.toISOString(),
-    endTime: end.toISOString(),
-    status,
-  };
+function mapStatus(status?: string): "UPCOMING" | "LIVE" | "FINISHED" {
+  const s = String(status || "").toLowerCase();
+  if (s === "live") return "LIVE";
+  if (s === "ended") return "FINISHED";
+  return "UPCOMING";
 }
 
 export const useContests = () => {
@@ -54,14 +45,15 @@ export const useContests = () => {
       setLoading(true);
       setError(null);
 
-      const res = await fetch(`${API_URL}/api/contests?limit=100`);
+      const res = await fetch(
+        `${API_URL}/api/contests?limit=${DEFAULT_LIMIT}`
+      );
       const json = await res.json();
 
       const raw = json?.data?.contests || [];
 
-      const formatted = raw.map((c: any) => {
+      const formatted: Contest[] = raw.map((c: any) => {
         const platform = String(c.platform || "other").toLowerCase();
-        const timeData = computeTimes(c);
 
         return {
           id: c._id,
@@ -70,23 +62,17 @@ export const useContests = () => {
           platformColor:
             platformColors[platform] || platformColors.other,
           platformInitial: platform.charAt(0).toUpperCase(),
-          startTime: timeData.startTime,
-          endTime: timeData.endTime,
-          status: timeData.status,
+          startTime: new Date(c.startTime).toISOString(),
+          endTime: c.endTime
+            ? new Date(c.endTime).toISOString()
+            : null,
+          status: mapStatus(c.status),
           link: c.url || "#",
           isSubscribed: false,
         };
       });
 
-      const unique = new Map<string, Contest>();
-      formatted.forEach((contest) => {
-        const key = contest.id || `${contest.name}-${contest.startTime}`;
-        if (!unique.has(key)) {
-          unique.set(key, contest);
-        }
-      });
-
-      setContests(Array.from(unique.values()));
+      setContests(formatted);
     } catch (err) {
       console.error("Fetch contests error:", err);
       setError("Failed to load contests");

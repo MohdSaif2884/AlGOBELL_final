@@ -1,0 +1,21 @@
+- [x] Fix duplicate contests issue in backend/services/contestService.js
+  - [x] Add check to skip contests without valid clistId
+  - [x] Deduplicate fetched contests array by content (name, platform, start_time)
+  - [x] Test the deduplication logic to ensure no duplicates
+- [x] Fix contest time parsing to ensure UTC timezone
+  - [x] Store raw UTC Date objects from Clist API in database (startTimeSeconds * 1000)
+  - [x] Remove timezone conversion from backend completely
+  - [x] Frontend handles timezone conversion to Asia/Kolkata
+  - [x] Ensure no double conversion
+- [x] Add unique index on { platform: 1, clistId: 1 } in Contest model
+- [x] Fix Codeforces timezone conversion in parseClistResponse
+  - [x] Store raw UTC Date objects (no conversion in backend)
+- [x] Clear existing duplicate entries (0 duplicates found)
+- [x] Re-fetch contests after fixes (SUCCESS: Fetched 132 contests, added 65 new)
+- [x] Recalculate contest statuses using UTC comparison (SUCCESS: Updated 24 live contests)
+- [x] Update server.js with better MongoDB connection handling
+- [x] Update frontend timeUtils.ts to use toLocaleString with Asia/Kolkata timezone for accurate IST conversion
+- [x] Add debug console logs to ContestCard.tsx to verify API values and timezone conversion
+- [x] Remove all manual timezone adjustments (+5.5 hours, setHours, moment().local())
+- [x] Confirm API values include Z or +00:00 and no double conversion
+- [x] Restart dev server to apply changes

@@ -14,7 +14,7 @@ const server = http.createServer(app);
 // ==========================================
 const io = socketIo(server, {
   cors: {
-    origin: config.frontendUrl,
+    origin: [config.frontendUrl, 'http://localhost:5173', 'http://localhost:8080'],
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   },
@@ -25,8 +25,8 @@ const io = socketIo(server, {
 // ==========================================
 app.use(
   cors({
-    origin: config.frontendUrl,
-    credentials: true,
+    origin: '*',
+    credentials: false,
   })
 );
 

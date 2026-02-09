@@ -7,29 +7,20 @@ class ContestService {
   constructor() {
     this.apis = [
       {
-        // 🔥 PRIMARY SOURCE — CLIST
+        // 🔥 ONLY PRIMARY SOURCE — CLIST
         name: "Clist",
         url: "https://clist.by/api/v4/contest/",
         timeout: 30000,
         parser: this.parseClistResponse.bind(this),
-        headers: {
+        headers: process.env.CLIST_USERNAME && process.env.CLIST_API_KEY ? {
           Authorization: `ApiKey ${process.env.CLIST_USERNAME}:${process.env.CLIST_API_KEY}`,
-        },
+        } : {},
         params: {
-          start__gte: new Date().toISOString(),
           order_by: "start",
-          limit: 100,
+          limit: 200,
+          with_resource: true,
         },
-        enabled: true,
-      },
-
-      {
-        // ⚠️ FALLBACK — Kontests
-        name: "Kontests",
-        url: "https://kontests.net/api/v1/all",
-        timeout: 20000,
-        parser: this.parseKontestsResponse.bind(this),
-        enabled: true,
+        enabled: !!(process.env.CLIST_USERNAME && process.env.CLIST_API_KEY),
       },
     ];
   }
@@ -40,9 +31,9 @@ class ContestService {
   async fetchWithRetry(config, maxRetries = 3) {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`🔄 ${config.name} attempt ${attempt}`);
+        console.log(`🔄 ${config.name} attempt ${attempt} - Hitting URL: ${config.url}`);
 
-        return await axios.get(config.url, {
+        const response = await axios.get(config.url, {
           timeout: config.timeout,
           headers: {
             "User-Agent": "Mozilla/5.0",
@@ -51,8 +42,27 @@ class ContestService {
           },
           params: config.params || {},
         });
+
+        // Log response status and length
+        console.log(`✅ ${config.name} response: Status ${response.status}, Length: ${JSON.stringify(response.data).length} chars`);
+
+        return response;
       } catch (err) {
-        console.error(`❌ ${config.name} failed:`, err.message);
+        const status = err.response?.status;
+        const statusText = err.response?.statusText;
+        const code = err.code;
+
+        // Handle 401/403 errors clearly
+        if (status === 401) {
+          console.error(`❌ ${config.name} failed: 401 Unauthorized - Check API credentials`);
+        } else if (status === 403) {
+          console.error(`❌ ${config.name} failed: 403 Forbidden - API access denied`);
+        } else {
+          console.error(`❌ ${config.name} failed: ${err.message}`);
+        }
+
+        console.error(`❌ Failure details: Status ${status} ${statusText}, Code: ${code}`);
+
         if (attempt === maxRetries) throw err;
         await new Promise((r) => setTimeout(r, 1500));
       }
@@ -76,31 +86,32 @@ class ContestService {
   parseClistResponse(data = {}) {
     const contests = data.objects || data.results || [];
 
-    return contests.map((c) => ({
-      clistId: c.id, // 🔥 TRUE UNIQUE ID
-      name: c.event,
-      site: c.resource?.name || "",
-      start_time: c.start,
-      end_time: c.end,
-      duration: Number(c.duration || 0),
-      url: c.href,
-    }));
+    return contests.map((contest) => {
+      const resourceName = contest.host || contest.resource?.name || contest.resource || "";
+      return {
+        clistId: contest.id, // 🔥 TRUE UNIQUE ID
+        name: contest.event,
+        site: resourceName,
+        start_time: contest.start,
+        end_time: contest.end,
+        duration: Number(contest.duration || 0),
+        url: contest.href,
+      };
+    });
   }
 
   // =========================
   // PLATFORM NORMALIZER
   // =========================
-  normalizePlatform(site = "") {
-    const s = site.toLowerCase();
+  normalizePlatform(name) {
+    const lower = name.toLowerCase();
 
-    if (s.includes("codeforces")) return "codeforces";
-    if (s.includes("leetcode")) return "leetcode";
-    if (s.includes("codechef")) return "codechef";
-    if (s.includes("atcoder")) return "atcoder";
-    if (s.includes("kaggle")) return "kaggle";
-    if (s.includes("hackerrank")) return "hackerrank";
-    if (s.includes("hackerearth")) return "hackerearth";
-    if (s.includes("topcoder")) return "topcoder";
+    if (lower.includes("codechef")) return "codechef";
+    if (lower.includes("codeforces")) return "codeforces";
+    if (lower.includes("leetcode")) return "leetcode";
+    if (lower.includes("atcoder")) return "atcoder";
+    if (lower.includes("kaggle")) return "kaggle";
+    if (lower.includes("hackerrank")) return "hackerrank";
 
     return "other";
   }
@@ -124,34 +135,131 @@ class ContestService {
   // FETCH + STORE
   // =========================
   async fetchAndStoreContests() {
-    let lastError;
+    let totalMatched = 0;
+    let totalModified = 0;
+    let totalUpserted = 0;
+    let totalFetched = 0;
+    let successfulSources = [];
+
+    // Clean existing duplicates before fetching new ones
+    console.log('🧹 Cleaning existing duplicate contests...');
+    const cleanedDuplicates = await this.removeDuplicateContests();
+    console.log(`🗑️ Cleaned ${cleanedDuplicates} existing duplicates`);
+
+    // Log total documents in DB before saving
+    const totalDocsBefore = await Contest.countDocuments();
+    console.log(`📊 Total contests in DB before fetch: ${totalDocsBefore}`);
+
+    // Log earliest and latest start times in DB
+    const dbContests = await Contest.find({}, { startTime: 1 }).sort({ startTime: 1 }).lean();
+    if (dbContests.length > 0) {
+      const earliestDB = dbContests[0].startTime;
+      const latestDB = dbContests[dbContests.length - 1].startTime;
+      console.log(`📅 DB contests range: ${earliestDB.toISOString()} to ${latestDB.toISOString()}`);
+    }
 
     for (const api of this.apis) {
       if (api.enabled === false) {
-        console.log(`⏭️ Skipping ${api.name}`);
+        if (api.name === 'Clist') {
+          console.error(`❌ Clist credentials missing in environment variables (CLIST_USERNAME and CLIST_API_KEY)`);
+        } else {
+          console.log(`⏭️ Skipping ${api.name}`);
+        }
         continue;
       }
 
       try {
         console.log(`📥 Fetching from ${api.name}`);
-        const res = await this.fetchWithRetry(api);
-        const contests = api.parser(res.data);
+        let allContests = [];
+        let offset = 0;
+        const maxContests = 1000; // Safety cap
+        const now = new Date();
+        const startOfDayUTC = new Date(Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate(),
+          0, 0, 0
+        ));
 
-        let saved = 0;
-        let skipped = 0;
+        while (allContests.length < maxContests) {
+          const currentParams = { ...api.params, offset, start__gte: startOfDayUTC.toISOString() };
+          const res = await this.fetchWithRetry({ ...api, params: currentParams });
+
+          // Log raw response.data.objects[0] before parsing
+          console.log("Raw Clist object sample:");
+          console.log(JSON.stringify(res.data.objects?.[0], null, 2));
+
+          // Log all resource names
+          const allResources = res.data.objects?.map((c) => ({
+            host: c.host,
+            resource: c.resource,
+            resourceName: c.resource?.name,
+            event: c.event
+          })) || [];
+          console.log("All resource mappings (first 10):");
+          console.log(JSON.stringify(allResources.slice(0, 10), null, 2));
+
+          const contests = api.parser(res.data);
+          allContests = allContests.concat(contests);
+
+          console.log(`📊 Page ${Math.floor(offset / api.params.limit) + 1}: ${contests.length} contests (Total: ${allContests.length})`);
+
+          // Check if there's a next page
+          if (!res.data.meta?.next || contests.length === 0) {
+            break;
+          }
+
+          offset += api.params.limit;
+        }
+
+        let contests = allContests.slice(0, maxContests); // Apply safety cap
+
+        // Filter out contests without valid clistId and deduplicate
+        contests = contests.filter(c => c.clistId && typeof c.clistId === 'number');
+        const uniqueContests = contests.reduce((acc, current) => {
+          const x = acc.find(item => item.clistId === current.clistId);
+          if (!x) {
+            return acc.concat([current]);
+          } else {
+            return acc;
+          }
+        }, []);
+
+        contests = uniqueContests;
+        console.log(`📊 Filtered and deduplicated count from ${api.name}: ${contests.length}`);
+
+        // Log earliest and latest start times from fetched contests
+        if (contests.length > 0) {
+          const validContests = contests.filter(c => c.start_time).sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+          if (validContests.length > 0) {
+            const earliestFetched = new Date(validContests[0].start_time);
+            const latestFetched = new Date(validContests[validContests.length - 1].start_time);
+            console.log(`📅 Fetched contests range: ${earliestFetched.toISOString()} to ${latestFetched.toISOString()}`);
+          }
+        }
+
+        // Log raw resource names for first 10 contests
+        contests.slice(0, 10).forEach((c, index) => {
+          console.log(`Raw resource name ${index + 1}: ${c.site}`);
+          if (index === 0) {
+            console.log(`Full contest object:`, JSON.stringify(c, null, 2));
+          }
+        });
+
+        let matched = 0;
+        let modified = 0;
+        let upserted = 0;
 
         for (const c of contests) {
           try {
             if (!c.name || !c.site || !c.start_time) {
-              skipped++;
               continue;
             }
 
-            const platform = this.normalizePlatform(c.site);
+            const platform = this.normalizePlatform(c.site).toLowerCase();
             const startTime = new Date(c.start_time);
 
             if (isNaN(startTime.getTime())) {
-              skipped++;
               continue;
             }
 
@@ -171,44 +279,51 @@ class ContestService {
             const now = new Date();
             let status = "upcoming";
 
-            if (now > endTime) status = "ended";
-            else if (now >= startTime && now <= endTime)
-              status = "live";
+            if (now < startTime) status = "upcoming";
+            else if (now >= startTime && now <= endTime) status = "live";
+            else status = "ended";
 
             // =========================
-            // 🔥 TRUE UNIQUE ID SYSTEM
+            // 🔥 TRUE UNIQUE ID SYSTEM - Use clistId
             // =========================
-            const externalId = c.clistId
-              ? `clist_${c.clistId}`
-              : `${platform}_${startTime.getTime()}`;
+            const externalId = `clist_${c.clistId}`;
 
-            const result = await Contest.findOneAndUpdate(
-              { externalId },
+            // Use updateOne with $set and upsert for proper duplicate handling
+            const updateResult = await Contest.updateOne(
+              { clistId: c.clistId },
               {
-                externalId,
-                name: c.name,
-                platform,
-                startTime,
-                endTime,
-                duration: Math.max(
-                  1,
-                  Math.floor((endTime - startTime) / 60000)
-                ),
-                url: c.url || "",
-                status,
-                lastFetched: new Date(),
+                $set: {
+                  clistId: c.clistId,
+                  externalId,
+                  name: c.name,
+                  platform,
+                  startTime,
+                  endTime,
+                  duration: Math.max(
+                    1,
+                    Math.floor((endTime - startTime) / 60000)
+                  ),
+                  url: c.url || "",
+                  status,
+                  lastFetched: new Date(),
+                }
               },
-              { upsert: true, new: false }
+              { upsert: true }
             );
 
-            if (!result) {
-              saved++;
+            matched += updateResult.matchedCount;
+            modified += updateResult.modifiedCount;
+            upserted += updateResult.upsertedCount;
+
+            if (updateResult.upsertedCount > 0) {
+              console.log(`✅ Upserted new contest: ${c.name}`);
               // =========================
               // SMART ALARM ENGINE
               // =========================
               try {
+                const savedContest = await Contest.findOne({ clistId: c.clistId });
                 await this.createSmartAlarmsForContest({
-                  contestId: result._id || (await Contest.findOne({ externalId }))._id,
+                  contestId: savedContest._id,
                   platform,
                   contestName: c.name,
                   startTime
@@ -216,32 +331,68 @@ class ContestService {
               } catch (smartAlarmError) {
                 console.error('❌ Smart alarm creation failed:', smartAlarmError.message);
               }
+            } else if (updateResult.modifiedCount > 0) {
+              console.log(`🔄 Updated existing contest: ${c.name}`);
             } else {
-              skipped++;
+              console.log(`⏭️ No changes needed for: ${c.name}`);
             }
           } catch (err) {
-            console.log("⚠️ Skipped contest:", c.name);
-            skipped++;
+            console.log("⚠️ Skipped contest:", c.name, "Error:", err.message);
           }
         }
 
         console.log(
-          `✅ ${api.name}: Saved ${saved}, Skipped ${skipped}, Total ${contests.length}`
+          `✅ ${api.name}: Matched ${matched}, Modified ${modified}, Inserted ${upserted}, Total ${contests.length}`
         );
 
-        return {
-          source: api.name,
-          saved,
-          skipped,
-          total: contests.length,
-        };
+        totalMatched += matched;
+        totalModified += modified;
+        totalUpserted += upserted;
+        totalFetched += contests.length;
+        successfulSources.push(api.name);
+
       } catch (err) {
-        lastError = err;
         console.error(`❌ ${api.name} failed:`, err.message);
+        console.error(`❌ Failure reason:`, err.response?.status, err.response?.statusText, err.code);
       }
     }
 
-    throw new Error(lastError?.message || "All APIs failed");
+    if (successfulSources.length === 0) {
+      throw new Error("All APIs failed");
+    }
+
+    const totalDocsAfter = await Contest.countDocuments();
+    console.log(`📊 Total contests in DB after fetch: ${totalDocsAfter}`);
+    console.log(`📊 Net change: ${totalDocsAfter - totalDocsBefore}`);
+
+    // Log platform-specific counts
+    const platformStats = await this.getPlatformStats();
+    console.log(`📊 Platform counts:`);
+    platformStats.forEach(stat => {
+      console.log(`  ${stat._id}: ${stat.count}`);
+    });
+
+    console.log(`🔄 Sync Summary: Matched ${totalMatched}, Modified ${totalModified}, Inserted ${totalUpserted}`);
+
+    // Remove any duplicate contests that may have been created
+    const removedDuplicates = await this.removeDuplicateContests();
+    console.log(`🗑️ Auto-removed ${removedDuplicates} duplicate contests`);
+
+    // Auto remove finished contests
+    const removedFinished = await this.removeFinishedContests();
+    console.log(`🗑️ Auto-removed ${removedFinished} finished contests`);
+
+    return {
+      sources: successfulSources,
+      matched: totalMatched,
+      modified: totalModified,
+      upserted: totalUpserted,
+      total: totalFetched,
+      dbBefore: totalDocsBefore,
+      dbAfter: totalDocsAfter,
+      platformStats,
+      removedFinished,
+    };
   }
 
   // =========================
@@ -265,25 +416,47 @@ class ContestService {
       query.platform = platform;
     }
 
-    const contests = await Contest.find(query)
-      .sort({ startTime: 1 })
-      .limit(Number(limit))
-      .lean();
+    return await Contest.aggregate([
+      { $match: query },
 
-    // Dynamically calculate status for each contest
-    return contests.map((c) => {
-      const status = this.calculateContestStatus(c.startTime, c.endTime);
-      return {
-        ...c,
-        status,
-        isLive: status === "live",
-        isUpcoming: status === "upcoming",
-        isEnded: status === "ended",
-        timeUntilStart: Math.floor(
-          (new Date(c.startTime) - new Date()) / 60000
-        ),
-      };
-    });
+      // Deduplicate contests with same name, startTime, platform
+      {
+        $group: {
+          _id: {
+            name: "$name",
+            startTime: "$startTime",
+            platform: "$platform"
+          },
+          doc: { $first: "$$ROOT" }
+        }
+      },
+      { $replaceRoot: { newRoot: "$doc" } },
+
+      {
+        $addFields: {
+          statusOrder: {
+            $switch: {
+              branches: [
+                { case: { $eq: ["$status", "live"] }, then: 1 },
+                { case: { $eq: ["$status", "upcoming"] }, then: 2 },
+                { case: { $eq: ["$status", "ended"] }, then: 3 }
+              ],
+              default: 4
+            }
+          }
+        }
+      },
+
+      { $sort: { statusOrder: 1, startTime: 1 } },
+
+      { $limit: Number(limit) },
+
+      {
+        $project: {
+          statusOrder: 0
+        }
+      }
+    ]);
   }
 
   // Keep old method for backward compatibility
@@ -356,6 +529,60 @@ class ContestService {
     }
 
     return result.deletedCount;
+  }
+
+  // =========================
+  // AUTO REMOVE FINISHED CONTESTS
+  // =========================
+  async removeFinishedContests() {
+    const now = new Date();
+    const result = await Contest.deleteMany({ endTime: { $lt: now } });
+
+    if (result.deletedCount > 0) {
+      console.log(`🗑️ Auto-removed ${result.deletedCount} finished contests`);
+    }
+
+    return result.deletedCount;
+  }
+
+  // =========================
+  // REMOVE DUPLICATE CONTESTS
+  // =========================
+  async removeDuplicateContests() {
+    // Find duplicates based on name, startTime, and platform
+    const duplicates = await Contest.aggregate([
+      {
+        $group: {
+          _id: {
+            name: "$name",
+            startTime: "$startTime",
+            platform: "$platform"
+          },
+          ids: { $push: "$_id" },
+          count: { $sum: 1 }
+        }
+      },
+      { $match: { count: { $gt: 1 } } }
+    ]);
+
+    let removed = 0;
+
+    for (const group of duplicates) {
+      const [keep, ...remove] = group.ids;
+      if (remove.length > 0) {
+        const result = await Contest.deleteMany({
+          _id: { $in: remove }
+        });
+        removed += result.deletedCount;
+        console.log(`🗑️ Removed ${result.deletedCount} duplicates for contest: ${group._id.name}`);
+      }
+    }
+
+    if (removed > 0) {
+      console.log(`🗑️ Total removed ${removed} duplicate contests`);
+    }
+
+    return removed;
   }
 
   // =========================

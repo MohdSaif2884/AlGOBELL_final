@@ -234,7 +234,7 @@
 
   /* Pricing Card */
   .pricing-card {
-    @apply glass-card relative p-8;
+    @apply glass-card relative p-8 overflow-visible;
   }
 
   .pricing-card.featured {
