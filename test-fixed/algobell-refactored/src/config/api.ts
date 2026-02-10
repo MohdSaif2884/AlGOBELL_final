@@ -25,7 +25,7 @@ export const API_ENDPOINTS = {
     BY_ID: (id: string) => `${API_URL}/api/contests/${id}`,
     SUBSCRIBE: (id: string) => `${API_URL}/api/contests/${id}/subscribe`,
     UNSUBSCRIBE: (id: string) => `${API_URL}/api/contests/${id}/unsubscribe`,
-    USER_SUBSCRIPTIONS: `${API_URL}/api/contests/user/subscriptions`,
+    USER_SUBSCRIPTIONS: `${API_URL}/api/reminders/subscriptions`,
   },
   
   // Reminders

@@ -1,5 +1,2 @@
-- [ ] Update parseTimeString in contestService.js to new logic
-- [ ] Add collection clearing in fetchAndStoreContests
-- [ ] Add verification log after refetch
-- [ ] Run test_time_parsing.js
-- [ ] Run fetchContests.js to re-fetch contests
+- [x] Add "My Subscribed" button to the left of Home button on dashboard page
+- [x] Add "My Subscribed" button next to Dashboard button on contests page
