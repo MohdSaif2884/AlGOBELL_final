@@ -1,4 +1,4 @@
- import { useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Bell,
@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Loader2,
   Home,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link, useNavigate } from "react-router-dom";
@@ -31,6 +32,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const sidebarItems = [
   { icon: LayoutDashboard, label: "Dashboard", id: "dashboard" },
+  { icon: Star, label: "My Subscribed", id: "subscribed" },
   { icon: Calendar, label: "Contests", id: "contests" },
   { icon: Settings, label: "Settings", id: "settings" },
 ];
@@ -98,12 +100,20 @@ const Dashboard = () => {
   const handleToggleSubscription = async (contestId: string) => {
     const contest = contests.find((item) => item.id === contestId);
     if (!contest) {
-      toggleSubscription(contestId);
+      const success = await toggleSubscription(contestId);
+      if (!success) {
+        console.error("Failed to toggle subscription for contest:", contestId);
+      }
       return;
     }
 
     const nextSubscribed = !contest.isSubscribed;
-    toggleSubscription(contestId);
+    const success = await toggleSubscription(contestId);
+
+    if (!success) {
+      console.error("Failed to toggle subscription for contest:", contestId);
+      return;
+    }
 
     const offsets = getSelectedOffsets();
     if (nextSubscribed) {
@@ -162,16 +172,38 @@ const Dashboard = () => {
               <span className="font-semibold">Home</span>
             </Link>
           </Button>
-          {activeTab === "contests" && (
+          {activeTab === "dashboard" && (
             <Button
-              onClick={() => setActiveTab("dashboard")}
+              onClick={() => setActiveTab("subscribed")}
               variant="ghost"
               size="sm"
               className="gap-2 hover:bg-white/10 text-white hover:text-white"
             >
-              <LayoutDashboard className="h-4 w-4" />
-              <span className="font-semibold">Dashboard</span>
+              <Star className="h-4 w-4" />
+              <span className="font-semibold">My Subscribed</span>
             </Button>
+          )}
+          {activeTab === "contests" && (
+            <>
+              <Button
+                onClick={() => setActiveTab("dashboard")}
+                variant="ghost"
+                size="sm"
+                className="gap-2 hover:bg-white/10 text-white hover:text-white"
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                <span className="font-semibold">Dashboard</span>
+              </Button>
+              <Button
+                onClick={() => setActiveTab("subscribed")}
+                variant="ghost"
+                size="sm"
+                className="gap-2 hover:bg-white/10 text-white hover:text-white"
+              >
+                <Star className="h-4 w-4" />
+                <span className="font-semibold">My Subscribed</span>
+              </Button>
+            </>
           )}
         </div>
         <Button
@@ -266,12 +298,15 @@ const Dashboard = () => {
           >
             <h1 className="text-2xl lg:text-3xl font-bold mb-1">
               {activeTab === "dashboard" && "Dashboard"}
+              {activeTab === "subscribed" && "My Subscribed Contests"}
               {activeTab === "contests" && "Contest Explorer"}
               {activeTab === "settings" && "Reminder Settings"}
             </h1>
             <p className="text-sm text-muted-foreground">
               {activeTab === "dashboard" &&
                 "Track your upcoming contests and performance at a glance."}
+              {activeTab === "subscribed" &&
+                "View and manage all contests you've subscribed to."}
               {activeTab === "contests" &&
                 "Browse and subscribe to contests from all platforms."}
               {activeTab === "settings" &&
@@ -391,6 +426,57 @@ const Dashboard = () => {
                   {filteredContests.map((contest) => (
                     <ContestCard 
                       key={contest.id} 
+                      {...contest}
+                      onToggleSubscription={handleToggleSubscription}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Subscribed Contests View */}
+          {activeTab === "subscribed" && (
+            <div>
+              <div className="flex items-center justify-between mb-6">
+                <p className="text-muted-foreground">
+                  {contests.filter(c => c.isSubscribed).length} subscribed contests
+                </p>
+                <Button
+                  variant="glass"
+                  size="sm"
+                  onClick={refetch}
+                  disabled={loading}
+                  className="gap-2"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+              </div>
+
+              {loading && contests.length === 0 ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <span className="ml-3 text-muted-foreground">Loading contests...</span>
+                </div>
+              ) : contests.filter(c => c.isSubscribed).length === 0 ? (
+                <div className="glass-card p-8 text-center">
+                  <Star className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-muted-foreground">No subscribed contests yet</p>
+                  <Button
+                    variant="glass"
+                    size="sm"
+                    onClick={() => setActiveTab("contests")}
+                    className="mt-4"
+                  >
+                    Browse Contests
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {contests.filter(c => c.isSubscribed).map((contest) => (
+                    <ContestCard
+                      key={contest.id}
                       {...contest}
                       onToggleSubscription={handleToggleSubscription}
                     />

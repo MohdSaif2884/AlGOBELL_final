@@ -1,4 +1,5 @@
- import { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 
 export interface Contest {
   id: string;
@@ -11,6 +12,7 @@ export interface Contest {
   status: "UPCOMING" | "LIVE" | "FINISHED";
   link: string;
   isSubscribed: boolean;
+  reminderOffsets?: number[];
 }
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
@@ -36,70 +38,134 @@ function mapStatus(status?: string): "UPCOMING" | "LIVE" | "FINISHED" {
 }
 
 export const useContests = () => {
+  const { user, session } = useAuth();
   const [contests, setContests] = useState<Contest[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchContests = async () => {
+    const res = await fetch(
+      `${API_URL}/api/contests?limit=${DEFAULT_LIMIT}`
+    );
+    const json = await res.json();
+
+    const raw = json?.data?.contests || [];
+
+    const formatted: Contest[] = raw.map((c: any) => {
+      const platform = String(c.platform || "other").toLowerCase();
+
+      return {
+        id: c._id,
+        name: c.name || "Unnamed Contest",
+        platform,
+        platformColor:
+          platformColors[platform] || platformColors.other,
+        platformInitial: platform.charAt(0).toUpperCase(),
+        startTime: new Date(c.startTime).toISOString(),
+        endTime: c.endTime
+          ? new Date(c.endTime).toISOString()
+          : null,
+        status: mapStatus(c.status),
+        link: c.url || "#",
+        isSubscribed: false, // Will be overridden by merge
+      };
+    });
+
+    return formatted;
+  };
+
+  const fetchSubscriptions = async () => {
+    if (!session?.token) return [];
+
+    const res = await fetch(`${API_URL}/api/reminders/subscriptions`, {
+      headers: {
+        Authorization: `Bearer ${session.token}`,
+      },
+    });
+
+    if (!res.ok) return [];
+
+    const json = await res.json();
+    return json?.data?.subscriptions || [];
+  };
+
+  const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const res = await fetch(
-        `${API_URL}/api/contests?limit=${DEFAULT_LIMIT}`
-      );
-      const json = await res.json();
+      const contests = await fetchContests();
 
-      const raw = json?.data?.contests || [];
+      if (!user) {
+        setContests(contests);
+        return;
+      }
 
-      const formatted: Contest[] = raw.map((c: any) => {
-        const platform = String(c.platform || "other").toLowerCase();
+      const subs = await fetchSubscriptions();
 
+      const merged = contests.map(c => {
+        const match = subs.find((s: any) => String(s.contestId) === String(c.id));
         return {
-          id: c._id,
-          name: c.name || "Unnamed Contest",
-          platform,
-          platformColor:
-            platformColors[platform] || platformColors.other,
-          platformInitial: platform.charAt(0).toUpperCase(),
-          startTime: new Date(c.startTime).toISOString(),
-          endTime: c.endTime
-            ? new Date(c.endTime).toISOString()
-            : null,
-          status: mapStatus(c.status),
-          link: c.url || "#",
-          isSubscribed: false,
+          ...c,
+          isSubscribed: !!match,
+          reminderOffsets: match ? match.offsetMinutes : [],
         };
       });
 
-      setContests(formatted);
+      setContests(merged);
     } catch (err) {
-      console.error("Fetch contests error:", err);
+      console.error("Load data error:", err);
       setError("Failed to load contests");
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleSubscription = (id: string) => {
-    setContests((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? { ...c, isSubscribed: !c.isSubscribed }
-          : c
-      )
-    );
+  const toggleSubscription = async (id: string): Promise<boolean> => {
+    if (!session?.token) return false;
+
+    try {
+      const contest = contests.find(c => c.id === id);
+      if (!contest) return false;
+
+      const method = contest.isSubscribed ? "DELETE" : "POST";
+      const url = contest.isSubscribed
+        ? `${API_URL}/api/contests/${id}/unsubscribe`
+        : `${API_URL}/api/contests/${id}/subscribe`;
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.token}`,
+        },
+      });
+
+      if (res.ok) {
+        // Refetch data to update state
+        await loadData();
+        return true;
+      } else {
+        console.error("Subscription API error:", res.status, res.statusText);
+        return false;
+      }
+    } catch (err) {
+      console.error("Toggle subscription error:", err);
+      return false;
+    }
   };
 
   useEffect(() => {
-    fetchContests();
-  }, []);
+    if (user !== undefined) { // Wait for auth state to be determined
+      loadData();
+    }
+  }, [user]);
 
   return {
     contests,
     loading,
     error,
-    refetch: fetchContests,
+    refetch: loadData,
     toggleSubscription,
   };
 };

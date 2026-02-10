@@ -1,17 +1,35 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import type { User, Session } from "@supabase/supabase-js";
+
+interface User {
+  id: string;
+  username: string;
+  email: string;
+  avatar: string;
+  stats: {
+    battlesPlayed: number;
+    battlesWon: number;
+    totalScore: number;
+    winRate: number;
+  };
+}
+
+interface Session {
+  token: string;
+  user: User;
+}
 
 interface AuthContextType {
   user: User | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string, name: string) => Promise<{ error: Error | null }>;
+  signUp: (username: string, email: string, password: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -19,38 +37,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Set up auth state listener BEFORE checking session
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setLoading(false);
+    // Check for existing session in localStorage
+    const token = localStorage.getItem("auth_token");
+    const userData = localStorage.getItem("auth_user");
+
+    if (token && userData) {
+      try {
+        const parsedUser = JSON.parse(userData);
+        setUser(parsedUser);
+        setSession({ token, user: parsedUser });
+      } catch (error) {
+        console.error("Error parsing stored auth data:", error);
+        localStorage.removeItem("auth_token");
+        localStorage.removeItem("auth_user");
       }
-    );
+    }
 
-    // Check for existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
+    setLoading(false);
   }, []);
 
-  const signUp = async (email: string, password: string, name: string) => {
+  const signUp = async (username: string, email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: window.location.origin,
-          data: {
-            full_name: name,
-          },
+      const response = await fetch(`${API_URL}/api/auth/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({ username, email, password }),
       });
-      return { error: error as Error | null };
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { error: new Error(data.message || "Registration failed") };
+      }
+
+      const { token, user: userData } = data.data;
+
+      // Store auth data
+      localStorage.setItem("auth_token", token);
+      localStorage.setItem("auth_user", JSON.stringify(userData));
+
+      setUser(userData);
+      setSession({ token, user: userData });
+
+      return { error: null };
     } catch (error) {
       return { error: error as Error };
     }
@@ -58,18 +89,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
+      const response = await fetch(`${API_URL}/api/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
       });
-      return { error: error as Error | null };
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { error: new Error(data.message || "Login failed") };
+      }
+
+      const { token, user: userData } = data.data;
+
+      // Store auth data
+      localStorage.setItem("auth_token", token);
+      localStorage.setItem("auth_user", JSON.stringify(userData));
+
+      setUser(userData);
+      setSession({ token, user: userData });
+
+      return { error: null };
     } catch (error) {
       return { error: error as Error };
     }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    // Clear stored auth data
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("auth_user");
+
+    setUser(null);
+    setSession(null);
   };
 
   return (

@@ -13,43 +13,54 @@ class ReminderService {
       if (!contest) {
         throw new Error('Contest not found');
       }
-      
+
+      console.log(`Contest found: ${contest.name}, startTime: ${contest.startTime}`);
+
       const user = await User.findById(userId);
       if (!user) {
         throw new Error('User not found');
       }
-      
+
       // Use custom offsets or user preferences or default
-      const offsets = customOffsets || 
-                     user.contestPreferences.reminderOffsets || 
+      const offsets = customOffsets ||
+                     user.contestPreferences.reminderOffsets ||
                      config.reminders.offsets;
-      
+
+      console.log(`Using offsets: ${offsets}`);
+      console.log(`User channels:`, user.contestPreferences.enabledChannels);
+
       const reminders = [];
-      
+
       for (const offsetMinutes of offsets) {
         // Calculate scheduled time (contest start - offset)
         const scheduledAt = new Date(contest.startTime);
         scheduledAt.setMinutes(scheduledAt.getMinutes() - offsetMinutes);
-        
+
+        console.log(`Offset ${offsetMinutes}min: scheduledAt = ${scheduledAt}, now = ${new Date()}`);
+
         // Don't create reminders for past times
         if (scheduledAt <= new Date()) {
+          console.log(`Skipping offset ${offsetMinutes}min - scheduled time is in the past`);
           continue;
         }
-        
+
         // Determine which channels to use
         const channels = {
           email: user.contestPreferences.enabledChannels.email,
-          whatsapp: user.contestPreferences.enabledChannels.whatsapp && 
+          whatsapp: user.contestPreferences.enabledChannels.whatsapp &&
                    config.features.whatsapp &&
                    user.hasPro(),
           push: user.contestPreferences.enabledChannels.push
         };
-        
+
+        console.log(`Channels for offset ${offsetMinutes}min:`, channels);
+
         // Only create reminder if at least one channel is enabled
         if (!channels.email && !channels.whatsapp && !channels.push) {
+          console.log(`Skipping offset ${offsetMinutes}min - no channels enabled`);
           continue;
         }
-        
+
         // Create or update reminder
         const reminder = await Reminder.findOneAndUpdate(
           {
@@ -67,10 +78,11 @@ class ReminderService {
             new: true
           }
         );
-        
+
+        console.log(`Created reminder for offset ${offsetMinutes}min:`, reminder._id);
         reminders.push(reminder);
       }
-      
+
       console.log(`✅ Created ${reminders.length} reminders for user ${userId}`);
       return reminders;
     } catch (error) {

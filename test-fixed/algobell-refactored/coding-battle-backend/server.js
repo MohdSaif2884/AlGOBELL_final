@@ -340,28 +340,28 @@ io.on("connection", (socket) => {
 // ==========================================
 // REMINDER CRON
 // ==========================================
-// if (config.features.contests) {
-//   const reminderService = require("./services/reminderService");
+if (config.features.contests) {
+  const reminderService = require("./services/reminderService");
 
-//   cron.schedule(
-//     config.reminders.cronSchedule,
-//     async () => {
-//       try {
-//         await reminderService.checkAndSendReminders();
-//       } catch (err) {
-//         console.error(
-//           "❌ Reminder cron error:",
-//           err.message
-//         );
-//       }
-//     }
-//   );
+  cron.schedule(
+    config.reminders.cronSchedule,
+    async () => {
+      try {
+        await reminderService.checkAndSendReminders();
+      } catch (err) {
+        console.error(
+          "❌ Reminder cron error:",
+          err.message
+        );
+      }
+    }
+  );
 
-//   console.log(
-//     "⏰ Reminder cron running:",
-//     config.reminders.cronSchedule
-//   );
-// }
+  console.log(
+    "⏰ Reminder cron running:",
+    config.reminders.cronSchedule
+  );
+}
 // ==========================================
 // REMINDER CRON
 // ==========================================

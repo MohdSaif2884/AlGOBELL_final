@@ -4,6 +4,7 @@ const reminderService = require('../services/reminderService');
 const ApiResponse = require('../middleware/apiResponse');
 const { protect } = require('../middleware/auth');
 const config = require('../config');
+const Reminder = require('../models/Reminder');
 
 /**
  * @route   GET /api/reminders
@@ -13,9 +14,9 @@ const config = require('../config');
 router.get('/', protect, async (req, res) => {
   try {
     const { status } = req.query;
-    
+
     const reminders = await reminderService.getUserReminders(req.user._id, status);
-    
+
     return ApiResponse.success(
       res,
       { reminders, count: reminders.length },
@@ -24,6 +25,53 @@ router.get('/', protect, async (req, res) => {
   } catch (error) {
     console.error('Error fetching reminders:', error);
     return ApiResponse.error(res, 'Failed to fetch reminders');
+  }
+});
+
+/**
+ * @route   GET /api/reminders/subscriptions
+ * @desc    Get user's contest subscriptions (simplified)
+ * @access  Private
+ */
+router.get('/subscriptions', protect, async (req, res) => {
+  try {
+    console.log("req.user:", req.user); // Log req.user for debugging
+
+    // Ensure Reminder.find({ userId: req.user._id }) is valid - use _id not id
+    const reminders = await Reminder.find({ userId: req.user._id, status: { $in: ['pending', 'sent'] } }).populate('contestId');
+
+    console.log(`Found ${reminders.length} reminders for user ${req.user._id}`);
+
+    // Ensure contest exists by filtering out reminders without contestId
+    const validReminders = reminders.filter(reminder => reminder.contestId);
+
+    console.log(`Valid reminders with contests: ${validReminders.length}`);
+
+    // Group by contestId to get subscriptions with offsets
+    const subscriptionsMap = validReminders.reduce((acc, reminder) => {
+      const contestId = reminder.contestId._id.toString();
+      if (!acc[contestId]) {
+        acc[contestId] = {
+          contestId,
+          offsetMinutes: []
+        };
+      }
+      acc[contestId].offsetMinutes.push(reminder.offsetMinutes);
+      return acc;
+    }, {});
+
+    const subscriptions = Object.values(subscriptionsMap);
+
+    console.log(`Returning ${subscriptions.length} subscriptions`);
+
+    return ApiResponse.success(
+      res,
+      { subscriptions },
+      'Subscriptions fetched successfully'
+    );
+  } catch (error) {
+    console.error('Error fetching subscriptions:', error);
+    return ApiResponse.error(res, error.message || 'Failed to fetch subscriptions');
   }
 });
 

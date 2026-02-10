@@ -48,6 +48,9 @@ const reminderSchema = new mongoose.Schema({
 
   failureReason: String,
 
+  // Track which offsets have been sent (for production safety)
+  sentOffsets: [Number],
+
   attempts: {
     type: Number,
     default: 0

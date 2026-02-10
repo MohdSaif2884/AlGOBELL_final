@@ -16,10 +16,14 @@ const generateToken = (id) => {
 // @access  Public
 router.post('/register', async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    console.log('Registration request body:', req.body);
+    const { username, fullName, email, password } = req.body;
+
+    // Handle both username and fullName (use fullName as username if provided)
+    const finalUsername = username || fullName;
 
     // Validation
-    if (!username || !email || !password) {
+    if (!finalUsername || !email || !password) {
       return res.status(400).json({
         success: false,
         message: 'Please provide all required fields'
@@ -28,7 +32,7 @@ router.post('/register', async (req, res) => {
 
     // Check if user exists
     const userExists = await User.findOne({
-      $or: [{ email }, { username }]
+      $or: [{ email }, { username: finalUsername }]
     });
 
     if (userExists) {
@@ -40,7 +44,7 @@ router.post('/register', async (req, res) => {
 
     // Create user
     const user = await User.create({
-      username,
+      username: finalUsername,
       email,
       password
     });

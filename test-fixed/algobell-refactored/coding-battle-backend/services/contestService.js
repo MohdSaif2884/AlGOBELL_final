@@ -101,6 +101,21 @@ class ContestService {
   }
 
   // =========================
+  // TIME PARSING HELPER
+  // =========================
+  parseTimeString(raw) {
+    if (!raw) return null;
+
+    // If already has timezone info, use directly
+    if (raw.endsWith("Z") || raw.includes("+")) {
+      return new Date(raw);
+    }
+
+    // Otherwise treat as UTC explicitly
+    return new Date(raw + "Z");
+  }
+
+  // =========================
   // PLATFORM NORMALIZER
   // =========================
   normalizePlatform(name) {
@@ -140,6 +155,11 @@ class ContestService {
     let totalUpserted = 0;
     let totalFetched = 0;
     let successfulSources = [];
+
+    // Clear entire contests collection once before refetching
+    const count = await Contest.countDocuments();
+    console.log("Deleting contests:", count);
+    await Contest.deleteMany({});
 
     // Clean existing duplicates before fetching new ones
     console.log('🧹 Cleaning existing duplicate contests...');
@@ -257,9 +277,11 @@ class ContestService {
             }
 
             const platform = this.normalizePlatform(c.site).toLowerCase();
-            const startTime = new Date(c.start_time);
 
-            if (isNaN(startTime.getTime())) {
+            // Use the robust time parsing helper
+            const startTime = this.parseTimeString(c.start_time);
+            if (!startTime) {
+              console.log(`⚠️ Failed to parse start time: ${c.start_time} for contest: ${c.name}`);
               continue;
             }
 
@@ -268,7 +290,11 @@ class ContestService {
             // =========================
             let endTime;
             if (c.end_time) {
-              endTime = new Date(c.end_time);
+              endTime = this.parseTimeString(c.end_time);
+              if (!endTime) {
+                console.log(`⚠️ Failed to parse end time: ${c.end_time} for contest: ${c.name}`);
+                continue;
+              }
             } else {
               const fallbackMinutes = this.getFixedMinutes(platform);
               endTime = new Date(
@@ -381,6 +407,10 @@ class ContestService {
     // Auto remove finished contests
     const removedFinished = await this.removeFinishedContests();
     console.log(`🗑️ Auto-removed ${removedFinished} finished contests`);
+
+    // Verify one contest
+    const test = await Contest.findOne({ clistId: 64954542 });
+    console.log("Stored startTime:", test.startTime);
 
     return {
       sources: successfulSources,
@@ -536,10 +566,11 @@ class ContestService {
   // =========================
   async removeFinishedContests() {
     const now = new Date();
-    const result = await Contest.deleteMany({ endTime: { $lt: now } });
+    const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 24 hours ago
+    const result = await Contest.deleteMany({ endTime: { $lt: cutoff } });
 
     if (result.deletedCount > 0) {
-      console.log(`🗑️ Auto-removed ${result.deletedCount} finished contests`);
+      console.log(`🗑️ Auto-removed ${result.deletedCount} finished contests (older than 24 hours)`);
     }
 
     return result.deletedCount;

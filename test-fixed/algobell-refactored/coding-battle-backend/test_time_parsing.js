@@ -1,8 +1,8 @@
-const ContestService = require('./services/contestService');
+const contestService = require('./services/contestService');
 
 class TestTimeParsing {
   constructor() {
-    this.contestService = new ContestService();
+    this.contestService = contestService;
   }
 
   testTimeParsing() {
@@ -43,11 +43,13 @@ class TestTimeParsing {
 
       // Simulate the parsing logic from fetchAndStoreContests
       const platform = this.contestService.normalizePlatform(c.site);
-      const startTime = new Date(c.start_time);
+
+      // Use the robust time parsing helper
+      const startTime = this.contestService.parseTimeString(c.start_time);
 
       let endTime;
       if (c.end_time) {
-        endTime = new Date(c.end_time);
+        endTime = this.contestService.parseTimeString(c.end_time);
       } else {
         const fallbackMinutes = this.contestService.getFixedMinutes(platform);
         endTime = new Date(startTime.getTime() + fallbackMinutes * 60000);
